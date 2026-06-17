@@ -28,10 +28,12 @@ Singleton {
     onEnabledChanged: {
         if (enabled) {
             setDynamicConfs();
+            Quickshell.execDetached(["pkill", "mpvpaper"]);
             if (GlobalConfig.utilities.toasts.gameModeChanged)
                 Toaster.toast(qsTr("Game mode enabled"), qsTr("Disabled Hyprland animations, blur, gaps and shadows"), "gamepad");
         } else {
             Hypr.extras.message("reload");
+            Quickshell.execDetached(["mpvpaper", "-o", "--no-audio --loop", "DP-4", "/mnt/store/Images/animated/fox.mp4"]);
             if (GlobalConfig.utilities.toasts.gameModeChanged)
                 Toaster.toast(qsTr("Game mode disabled"), qsTr("Hyprland settings restored"), "gamepad");
         }
