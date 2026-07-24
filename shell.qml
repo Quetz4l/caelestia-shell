@@ -9,16 +9,24 @@ import "modules/drawers"
 import "modules/background"
 import "modules/areapicker"
 import "modules/lock"
-// import "modules/inkcat"
+import QtQuick
 import Quickshell
+import qs.services
 
 ShellRoot {
+    id: root
+
     settings.watchFiles: false
+
+    Binding {
+        target: ShellState
+        property: "shellRoot"
+        value: root
+    }
 
     GSFLoader {}
 
     Background {}
-    // InkCat {}
     Drawers {}
     AreaPicker {}
     Lock {
