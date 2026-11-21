@@ -3,6 +3,7 @@ pragma Singleton
 import QtQuick
 import QtQuick.Layouts
 import Caelestia.Config
+import Caelestia.I18n
 import qs.components
 import qs.services
 import qs.modules.nexus.common
@@ -54,6 +55,15 @@ QtObject {
                 }
                 Component {
                     NetworkDetailPage {}
+                }
+                Component {
+                    AddVpnPage {}
+                }
+                Component {
+                    AllNetworksPage {}
+                }
+                Component {
+                    SavedNetworksPage {}
                 }
             }
         },
@@ -109,6 +119,9 @@ QtObject {
                 }
                 Component {
                     SidebarPanel {}
+                }
+                Component {
+                    UtilitiesPanel {}
                 }
 
                 // Taskbar component sub-pages
@@ -193,14 +206,14 @@ QtObject {
 
             StyledText {
                 Layout.alignment: Qt.AlignHCenter
-                text: qsTr("Page under construction")
+                text: Tr.tr("Page under construction")
                 color: Colours.palette.m3outlineVariant
                 font: Tokens.font.title.large
             }
 
             StyledText {
                 Layout.alignment: Qt.AlignHCenter
-                text: qsTr("This page will be available in a future update.")
+                text: Tr.tr("This page will be available in a future update.")
                 color: Colours.palette.m3outlineVariant
                 font: Tokens.font.body.large
             }

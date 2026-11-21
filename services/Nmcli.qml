@@ -4,6 +4,7 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import Caelestia.I18n
 
 Singleton {
     id: root
@@ -21,6 +22,8 @@ Singleton {
     readonly property AccessPoint active: networks.find(n => n.active) ?? null
     property list<string> savedConnections: []
     property list<string> savedConnectionSsids: []
+    // Map of saved Wi-Fi SSID (lowercased) -> security type
+    property var savedConnectionSecurity: ({})
 
     property var wifiConnectionQueue: []
     property int currentSsidQueryIndex: 0
@@ -222,24 +225,52 @@ Singleton {
     function getEthernetInterfaces(callback: var): void {
         executeCommand(["-t", "-f", root.deviceStatusFields, root.nmcliCommandDevice, "status"], result => {
             const interfaces = parseDeviceStatusOutput(result.output, root.deviceTypeEthernet);
-            const devices = interfaces.map(iface => ({
-                        interface: iface.device,
-                        type: iface.type,
-                        state: iface.state,
-                        connection: iface.connection,
-                        connected: isConnectedState(iface.state),
-                        ipAddress: "",
-                        gateway: "",
-                        dns: [],
-                        subnet: "",
-                        macAddress: "",
-                        speed: ""
-                    }));
+            const applyInterfaces = filtered => {
+                const devices = filtered.map(iface => ({
+                            interface: iface.device,
+                            type: iface.type,
+                            state: iface.state,
+                            connection: iface.connection,
+                            connected: isConnectedState(iface.state),
+                            ipAddress: "",
+                            gateway: "",
+                            dns: [],
+                            subnet: "",
+                            macAddress: "",
+                            speed: ""
+                        }));
 
-            root.ethernetInterfaces = interfaces;
-            syncEthernetDevices(devices);
-            if (callback)
-                callback(interfaces);
+                root.ethernetInterfaces = filtered;
+                syncEthernetDevices(devices);
+                if (callback)
+                    callback(filtered);
+            };
+
+            if (interfaces.length === 0) {
+                applyInterfaces([]);
+                return;
+            }
+
+            // NetworkManager reports container/VM veth pairs (Docker, Podman,
+            // etc.) as type "ethernet" too, so they'd show up here like real
+            // connections. A physical NIC always has
+            // /sys/class/net/<iface>/device; veth/bridge/tun interfaces
+            // never do, so that's how we tell them apart.
+            const proc = physicalCheckProc.createObject(root);
+            proc.callback = result => {
+                if (!result.success) {
+                    console.warn(lc, `Failed to classify ethernet interfaces (exited: ${result.exitCode}); keeping the unfiltered list.`);
+                    applyInterfaces(interfaces);
+                    return;
+                }
+
+                const physicalSet = result.output.trim().split("\n").filter(l => l.length > 0);
+                const filtered = interfaces.filter(iface => physicalSet.includes(iface.device));
+
+                applyInterfaces(filtered);
+            };
+
+            proc.exec(["sh", "-c", 'test -d /sys/class/net || exit 1; for i do [ -e "/sys/class/net/$i/device" ] && printf "%s\\n" "$i"; done; exit 0', "sh", ...interfaces.map(iface => iface.device)]);
         });
     }
 
@@ -499,6 +530,7 @@ Singleton {
             if (!result.success) {
                 root.savedConnections = [];
                 root.savedConnectionSsids = [];
+                root.savedConnectionSecurity = {};
                 if (callback)
                     callback([]);
                 return;
@@ -528,6 +560,8 @@ Singleton {
 
         root.savedConnections = connections;
 
+        root.savedConnectionSecurity = {};
+
         if (wifiConnections.length > 0) {
             root.wifiConnectionQueue = wifiConnections;
             root.currentSsidQueryIndex = 0;
@@ -546,7 +580,7 @@ Singleton {
             const connectionName = root.wifiConnectionQueue[root.currentSsidQueryIndex];
             root.currentSsidQueryIndex++;
 
-            executeCommand(["-t", "-f", root.wirelessSsidField, root.nmcliCommandConnection, "show", connectionName], result => {
+            executeCommand(["-t", "-f", `${root.wirelessSsidField},${root.securityKeyMgmt}`, root.nmcliCommandConnection, "show", connectionName], result => {
                 if (result.success) {
                     processSsidOutput(result.output);
                 }
@@ -561,21 +595,61 @@ Singleton {
     }
 
     function processSsidOutput(output: string): void {
-        const lines = output.trim().split("\n");
-        for (const line of lines) {
-            if (line.startsWith("802-11-wireless.ssid:")) {
-                const ssid = line.substring("802-11-wireless.ssid:".length).trim();
-                if (ssid && ssid.length > 0) {
-                    const ssidLower = ssid.toLowerCase();
-                    const exists = root.savedConnectionSsids.some(s => s && s.toLowerCase() === ssidLower);
-                    if (!exists) {
-                        const newList = root.savedConnectionSsids.slice();
-                        newList.push(ssid);
-                        root.savedConnectionSsids = newList;
-                    }
-                }
-            }
+        const ssidPrefix = "802-11-wireless.ssid:";
+        const keyMgmtPrefix = `${root.securityKeyMgmt}:`;
+
+        let ssid = "";
+        let keyMgmt = "";
+        for (const line of output.trim().split("\n")) {
+            if (line.startsWith(ssidPrefix))
+                ssid = line.substring(ssidPrefix.length).trim();
+            else if (line.startsWith(keyMgmtPrefix))
+                keyMgmt = line.substring(keyMgmtPrefix.length).trim();
         }
+
+        if (!ssid || ssid.length === 0)
+            return;
+
+        const ssidLower = ssid.toLowerCase();
+
+        const exists = root.savedConnectionSsids.some(s => s && s.toLowerCase() === ssidLower);
+        if (!exists) {
+            const newList = root.savedConnectionSsids.slice();
+            newList.push(ssid);
+            root.savedConnectionSsids = newList;
+        }
+
+        const security = Object.assign({}, root.savedConnectionSecurity);
+        security[ssidLower] = keyMgmt;
+        root.savedConnectionSecurity = security;
+    }
+
+    function securityLabel(keyMgmt: string): string {
+        switch ((keyMgmt || "").trim().toLowerCase()) {
+        case "":
+        case "none":
+            return Tr.trCtx("Open", "wifi security type");
+        case "sae":
+            return "WPA3";
+        case "wpa-psk":
+            return "WPA2";
+        case "wpa-eap":
+        case "wpa-eap-suite-b-192":
+            return Tr.tr("Enterprise");
+        case "owe":
+            return Tr.tr("Enhanced Open");
+        case "ieee8021x":
+            return "802.1X";
+        default:
+            return keyMgmt.trim();
+        }
+    }
+
+    // Cached security label for a saved SSID, or "" if unknown (e.g. not loaded).
+    function savedSecurityFor(ssid: string): string {
+        if (!ssid || ssid.length === 0)
+            return "";
+        return root.savedConnectionSecurity[ssid.toLowerCase().trim()] || "";
     }
 
     function hasSavedProfile(ssid: string): bool {
@@ -1233,19 +1307,6 @@ Singleton {
         dataUsageProc.running = true;
     }
 
-    function formatBytes(bytes: var): string {
-        if (!bytes || bytes <= 0)
-            return "0 B";
-        const units = ["B", "KB", "MB", "GB", "TB"];
-        let i = 0;
-        let v = bytes;
-        while (v >= 1024 && i < units.length - 1) {
-            v /= 1024;
-            i++;
-        }
-        return `${v.toFixed(v < 10 && i > 0 ? 1 : 0)} ${units[i]}`;
-    }
-
     function getEthernetDeviceDetails(interfaceName: string, callback: var): void {
         if (!interfaceName || interfaceName.length === 0) {
             const activeInterface = root.ethernetInterfaces.find(iface => {
@@ -1410,6 +1471,39 @@ Singleton {
         EthernetDevice {}
     }
 
+    Component {
+        id: physicalCheckProc
+
+        Process {
+            id: proc
+
+            property var callback: null
+
+            stdout: StdioCollector {
+                id: stdoutCollector
+            }
+
+            stderr: StdioCollector {
+                id: stderrCollector
+            }
+
+            onExited: code => { // qmllint disable signal-handler-parameters
+                Qt.callLater(() => {
+                    const callback = proc.callback;
+                    const result = {
+                        success: code === 0,
+                        output: stdoutCollector.text ?? "",
+                        error: stderrCollector.text ?? "",
+                        exitCode: code
+                    };
+
+                    proc.destroy();
+                    callback?.(result);
+                });
+            }
+        }
+    }
+
     Timer {
         id: connectionCheckTimer
 
@@ -1568,7 +1662,7 @@ Singleton {
                         dataUsageProc.cb("");
                     return;
                 }
-                const human = root.formatBytes(nums[0] + nums[1]);
+                const human = Units.formatBytes(nums[0] + nums[1]);
                 root.ethernetDataUsage = human;
                 if (dataUsageProc.cb)
                     dataUsageProc.cb(human);
@@ -1587,9 +1681,11 @@ Singleton {
                     root.ethernetSpeed = "";
                 } else if (mbit >= 1000) {
                     const gbps = mbit / 1000;
-                    root.ethernetSpeed = `${Number.isInteger(gbps) ? gbps : gbps.toFixed(1)} Gbps`;
+                    // TRANSLATORS: %1 = a number
+                    root.ethernetSpeed = Tr.tr("%1 Gbps").arg(Number.isInteger(gbps) ? gbps : gbps.toFixed(1));
                 } else {
-                    root.ethernetSpeed = `${mbit} Mbps`;
+                    // TRANSLATORS: %1 = a number
+                    root.ethernetSpeed = Tr.tr("%1 Mbps").arg(mbit);
                 }
             }
         }
