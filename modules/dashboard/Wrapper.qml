@@ -27,6 +27,21 @@ Item {
         }
     }
 
+    // >>> caelestia-equalizer: selected page cache >>>
+    property bool equalizerPageRetained: false
+
+    function updateEqualizerPageRetention() {
+        const tabs = (content.item as Content)?.dashboardTabs;
+        equalizerPageRetained = !!tabs && tabs[root.screenState.dashboardTab]?.iconName === "equalizer";
+    }
+
+    Connections {
+        target: root.screenState
+        function onDashboardTabChanged() { Qt.callLater(root.updateEqualizerPageRetention); }
+        function onDashboardChanged() { Qt.callLater(root.updateEqualizerPageRetention); }
+    }
+    // <<< caelestia-equalizer: selected page cache <<<
+
     readonly property real nonAnimHeight: (content.item as Content)?.nonAnimHeight ?? 0
     readonly property bool shouldBeActive: screenState.dashboard && Config.dashboard.enabled
     property real offsetScale: shouldBeActive ? 0 : 1
@@ -43,11 +58,12 @@ Item {
 
     Loader {
         id: content
+        onLoaded: Qt.callLater(root.updateEqualizerPageRetention)
 
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottom: parent.bottom
 
-        active: root.shouldBeActive || root.visible
+        active: root.shouldBeActive || root.visible || root.equalizerPageRetained
 
         sourceComponent: Content {
             screenState: root.screenState
