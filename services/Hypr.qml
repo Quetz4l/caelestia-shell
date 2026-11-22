@@ -44,6 +44,12 @@ Singleton {
         Hyprland.dispatch(request);
     }
 
+    function setSubmap(name: string): void {
+        if (!usingLua)
+            return;
+        dispatch(`hl.dsp.submap("${name}")`);
+    }
+
     function focusWorkspace(ws: var): void {
         dispatch(usingLua ? `hl.dsp.focus({ workspace = "${ws}" })` : `workspace ${ws}`);
     }
