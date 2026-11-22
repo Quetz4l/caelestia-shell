@@ -5,6 +5,9 @@ import Caelestia
 import qs.components.misc
 import qs.services
 import qs.modules.nexus
+// >>> caelestia-notes: managed block - do not edit; `install.sh --uninstall` removes it >>>
+import Caelestia.Config
+// <<< caelestia-notes <<<
 
 Scope {
     id: root
@@ -107,6 +110,37 @@ Scope {
             screenState.utilities = !screenState.utilities;
         }
     }
+
+    // >>> caelestia-notes: managed block - do not edit; `install.sh --uninstall` removes it >>>
+    function openNewNote(): void {
+        if (hasFullscreen)
+            return;
+        const screenState = ShellState.forActive();
+        screenState.dashboard = true;
+        screenState.dashboardTab = (Config.dashboard.showDashboard ? 1 : 0) + (Config.dashboard.showMedia ? 1 : 0) + 1;
+        try {
+            NotesStore.createAndOpenNewNote();
+        } catch (e) {
+            console.warn("[Notes] could not create a note:", e);
+        }
+    }
+
+    // qmllint disable unresolved-type
+    CustomShortcut {
+        // qmllint enable unresolved-type
+        name: "newNote"
+        description: "Create a new note in the Notes tab"
+        onPressed: root.openNewNote()
+    }
+
+    IpcHandler {
+        function newNote(): void {
+            root.openNewNote();
+        }
+
+        target: "notes"
+    }
+    // <<< caelestia-notes <<<
 
     IpcHandler {
         function toggle(drawer: string): void {

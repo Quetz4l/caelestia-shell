@@ -68,7 +68,10 @@ StyledWindow {
     name: "drawers"
     WlrLayershell.exclusionMode: ExclusionMode.Ignore
     WlrLayershell.layer: (fsTransitionProg > 0 && contentItem.Config.general.showOverFullscreen) || (hasSpecialWorkspace && hasFullscreenOnNormalWs) ? WlrLayer.Overlay : WlrLayer.Top
-    WlrLayershell.keyboardFocus: screenState.launcher || screenState.session ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
+    // >>> caelestia-notes: lets the dashboard take keyboard focus so you can type in Notes >>>
+    // original: WlrLayershell.keyboardFocus: screenState.launcher || screenState.session ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
+    WlrLayershell.keyboardFocus: screenState.launcher || screenState.session || screenState.dashboard ? WlrKeyboardFocus.OnDemand : WlrKeyboardFocus.None
+    // <<< caelestia-notes <<<
 
     mask: hasFullscreen ? emptyRegion : regions
 
